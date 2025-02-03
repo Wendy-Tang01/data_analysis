@@ -1,0 +1,1396 @@
+
+#Figure 1A
+library(ggplot2)
+library(dplyr)
+colnames(kp)[which(colnames(kp) == "hvKp_P")] <- "hvKp_label"
+hvKp_distribution <- kp %>%
+  group_by(Year) %>%  
+  summarise(
+       hvKp_count = sum(hvKp_label == 1),  
+    total_count = n(),  
+    hvKp_proportion = hvKp_count / total_count,  
+    hvKp_se = ifelse(total_count > 1 & hvKp_proportion <= 1, 
+                     sqrt(hvKp_proportion * (1 - hvKp_proportion) / total_count), 
+                     NA) 
+  )
+print(hvKp_distribution)
+
+library(ggplot2)
+library(dplyr)
+kp <- kp %>%
+  mutate(specimen_label = factor(case_when(
+    specimen == 1 ~ "Pneumonia",
+    specimen == 2 ~ "Urogenital Infection",
+    specimen == 3 ~ "Bacteremia",
+    specimen == 4 ~ "Abdominal Infection",
+    specimen == 5 ~ "Skin and Soft Tissue Infection",
+    specimen == 6 ~ "Others"
+  ), levels = c("Pneumonia", "Urogenital Infection", "Bacteremia", "Abdominal Infection", 
+                "Skin and Soft Tissue Infection", "Others")))  
+colors <- c("Pneumonia" = "#E9B383",              
+            "Urogenital Infection" = "#FED593",   
+            "Bacteremia" = "#A0C8CF",             
+            "Abdominal Infection" = "#7C9D97",    
+            "Skin and Soft Tissue Infection" = "#A7B7C3",  
+            "Others" = "#D7D7D7")                 
+specimen_distribution <- kp %>% 
+  group_by(Year, specimen_label) %>% 
+  summarise(count = n(), .groups = 'drop')
+hvKp_distribution <- data.frame(
+  Year = c(2017, 2018, 2019, 2020, 2021, 2022, 2023),
+  hvKp_count = c(3, 6, 1, 13, 52, 29, 23),   
+  hvKp_se = c(0.0798, 0.0281, 0.0253, 0.0230, 0.0180, 0.0151, 0.0257)  )
+p <- ggplot() + 
+  geom_bar(data = specimen_distribution, aes(x = factor(Year), y = count, fill = specimen_label), 
+           stat = "identity", width = 0.6) +  
+  scale_fill_manual(values = colors) +  
+  labs(title = "Yearly Isolates",  
+       x = "Year",                
+       y = "Number of Isolates",   
+       fill = "Specimen Type") +   
+  theme_minimal() +
+  theme(axis.line = element_line(color = "black"),        
+        axis.ticks = element_line(color = "black"),       
+        axis.text = element_text(color = "black"),        
+        axis.title = element_text(color = "black"),
+        legend.position.inside = c(0.85, 0.15)) +         
+ 
+  geom_line(data = hvKp_distribution, aes(x = factor(Year), y = hvKp_count * 10, group = 1), 
+            color = "#4A90E2", linewidth = 1) +  
+  geom_point(data = hvKp_distribution, aes(x = factor(Year), y = hvKp_count * 10), 
+             color = "#4A90E2", size = 2) +  
+  geom_errorbar(data = hvKp_distribution, aes(x = factor(Year), 
+                                              ymin = (hvKp_count - hvKp_se) * 10, 
+                                              ymax = (hvKp_count + hvKp_se) * 10), 
+                color = "#4A90E2", width = 0.2) +  
+  scale_y_continuous(sec.axis = sec_axis(~ . / 10, name = "hvKp-p Cohort"))  
+print(p)
+
+
+#Figure 1B
+library(ggplot2)
+library(gghalves)
+colors <- c("#E9B383", "#FED593", "#A0C8CF", "#7C9D97", "#A7B7C3", "#D7D7D7")
+ggplot(kp, aes(x = specimen, y = Charlson, fill = specimen)) +
+  geom_half_violin(side = "l", alpha = 0.5, color = NA) +          
+  geom_half_boxplot(side = "r", width = 0.3, outlier.shape = NA) + 
+  geom_jitter(width = 0.2, size = 1, alpha = 0.5) +                
+  labs(x = "Specimen Type", y = "Charlson Index") +                
+  scale_fill_manual(values = colors) +                             
+  theme_minimal() +
+  theme(
+    legend.position = "none",                                      
+    axis.line.x = element_line(color = "black"),                   
+    axis.line.y = element_line(color = "black"),                   
+    axis.ticks = element_line(color = "black"),                 
+    axis.text = element_text(color = "black")                    
+  )
+
+
+#Figure 1C
+#14d
+library(survival)
+library(survminer)
+library(dplyr)
+library(ggplot2)
+kp_filtered <- kp %>%
+  filter(fivevsnon %in% c(0, 1), !is.na(status), !is.na(time)) %>%  
+  mutate(
+    fivevsnon = as.factor(fivevsnon),  
+    status = ifelse(time > 14, 0, status),  
+    time = pmin(time, 14)                  
+  )
+surv_object <- Surv(time = kp_filtered$time, event = kp_filtered$status)
+fit <- survfit(surv_object ~ fivevsnon, data = kp_filtered)
+p_val <- survdiff(surv_object ~ fivevsnon, data = kp_filtered)
+p_value <- 1 - pchisq(p_val$chisq, length(p_val$n) - 1)
+p_text <- paste("p =", signif(p_value, 3))
+p <- ggsurvplot(
+  fit,
+  data = kp_filtered,
+  conf.int = TRUE,
+  risk.table = TRUE,
+  xlab = "Follow-up Time (days)",
+  ylab = "Survival Probability",
+  xlim = c(0, 14),                
+  ylim = c(0.5, 1),               
+  break.time.by = 7,             
+  legend.labs = c("cKp−p sub-cohort 2", "hvKp−p cohort"),  
+  palette = c("#FCB462", "#795B34")  
+)
+p$plot <- p$plot +
+  scale_fill_manual(values = c("cKp−p sub-cohort 2" = "#FFE8CE", "hvKp−p cohort" = "#DACEC2")) +  
+  annotate("text", x = 5, y = 0.6, label = p_text, size = 4, color = "black")    
+print(p)
+
+#28d
+library(survival)
+library(survminer)
+library(dplyr)
+library(ggplot2)
+kp_filtered <- kp %>%
+  filter(fivevsnon %in% c(0, 1), !is.na(status), !is.na(time)) %>%  
+  mutate(
+    fivevsnon = as.factor(fivevsnon),  
+    status = ifelse(time > 28, 0, status),  
+    time = pmin(time, 28)                   
+  )
+
+surv_object <- Surv(time = kp_filtered$time, event = kp_filtered$status)
+fit <- survfit(surv_object ~ fivevsnon, data = kp_filtered)
+p_val <- survdiff(surv_object ~ fivevsnon, data = kp_filtered)
+p_value <- 1 - pchisq(p_val$chisq, length(p_val$n) - 1)
+p_text <- paste("p =", signif(p_value, 3))
+p <- ggsurvplot(
+  fit,
+  data = kp_filtered,
+  conf.int = TRUE,
+  risk.table = TRUE,
+  xlab = "Follow-up Time (days)",
+  ylab = "Survival Probability",
+  xlim = c(0, 28),               
+  ylim = c(0.5, 1),              
+  break.time.by = 7,              
+  legend.labs = c("cKp−p sub-cohort 2", "hvKp−p cohort"),  
+  palette = c("#FCB462", "#795B34")  
+)
+
+p$plot <- p$plot +
+  scale_fill_manual(values = c("cKp−p sub-cohort 2" = "#FFE8CE", "hvKp−p cohort" = "#DACEC2")) + 
+  annotate("text", x = 5, y = 0.6, label = p_text, size = 4, color = "black")    
+print(p)
+
+#90d
+library(survival)
+library(survminer)
+library(dplyr)
+library(ggplot2)
+
+kp_filtered <- kp %>%
+  filter(fivevsnon %in% c(0, 1), !is.na(status), !is.na(time)) %>%  
+  mutate(
+    fivevsnon = as.factor(fivevsnon),  
+    status = ifelse(time > 90, 0, status),  
+    time = pmin(time, 90)                   
+  )
+surv_object <- Surv(time = kp_filtered$time, event = kp_filtered$status)
+
+fit <- survfit(surv_object ~ fivevsnon, data = kp_filtered)
+p_val <- survdiff(surv_object ~ fivevsnon, data = kp_filtered)
+p_value <- 1 - pchisq(p_val$chisq, length(p_val$n) - 1)
+p_text <- paste("p =", signif(p_value, 3))
+
+p <- ggsurvplot(
+  fit,
+  data = kp_filtered,
+  conf.int = TRUE,
+  risk.table = TRUE,
+  xlab = "Follow-up Time (days)",
+  ylab = "Survival Probability",
+  xlim = c(0, 90),                
+  ylim = c(0.5, 1),               
+  break.time.by = 30,             
+  legend.labs = c("cKp−p sub-cohort 2", "hvKp−p cohort"),  
+  palette = c("#FCB462", "#795B34") 
+)
+p$plot <- p$plot +
+  scale_fill_manual(values = c("cKp−p sub-cohort 2" = "#FFE8CE", "hvKp−p cohort" = "#DACEC2")) + 
+  annotate("text", x = 30, y = 0.6, label = p_text, size = 4, color = "black")    
+print(p)
+
+
+#Figure1D
+library(forestploter)
+library(readxl)
+colnames(forest)[which(colnames(forest) == "Subgroups")] <- "Items"
+forest$Items <- ifelse(is.na(forest$OR), forest$Items, sprintf("%-25s", forest$Items))
+forest$Graph <- paste(rep(" ", 20), collapse = " ")
+forest$`OR (95% CI)` <- ifelse(is.na(forest$OR), "", 
+                               sprintf("%.2f (%.2f to %.2f)", forest$OR, forest$LowerCI, forest$UpperCI))
+custom_theme <- forest_theme(
+  base_size = 12,
+  refline_col = "#EB746A",               
+  footnote_col = "#4F4F4F",              
+  footnote_fontface = "italic",          
+  title_fontface = "bold",               
+  title_size = 14,                      
+  spacing = 1.2                        
+)
+
+black_vars <- c("Age", "ICU", "CCI≥3", "CAI", "HCAI", "HAI", 
+                "Cardiovascular disease", "Digestive disease", "Urologic disease")
+
+plot <- forest(
+  forest[, c("Items", "Graph", "OR (95% CI)")], 
+  est = forest$OR,                              
+  lower = forest$LowerCI,                       
+  upper = forest$UpperCI,                       
+  ci_column = 2,                               
+  ref_line = 1,                                 
+  arrow_lab = c("Lower", "Higher"),             
+  xlim = c(0, 4),                              
+  ticks_at = c(0,1,2,3,4),              
+  theme = custom_theme,                        
+  point_col = ifelse(forest$Items %in% black_vars, "black", "gray")
+)
+print(plot)
+
+
+#Figure 2 
+Waiting
+
+
+
+#Figure 3A
+library(ggplot2)
+library(dplyr)
+
+kp_cumulative_specimen <- kp %>%
+  mutate(K_type_factor = factor(K_type)) %>%  
+  group_by(specimen, K_type_factor) %>%
+  summarise(count = n(), .groups = 'drop') %>%  
+  arrange(specimen, K_type_factor) %>%         
+  group_by(specimen) %>%
+  mutate(
+    cumulative_count = cumsum(count),           
+    total_count = sum(count),                   
+    cumulative_percentage = (cumulative_count / total_count) * 100  
+  )
+colors <- c("#e9B383", "#fED593", "#A0C8CF", "#7C9D97", "#A7B7C3", "#D7D7D7")
+ggplot(kp_cumulative_specimen, aes(x = as.numeric(K_type_factor), y = cumulative_percentage, color = as.factor(specimen), group = specimen)) +
+  geom_step(size = 0.8) +  
+  scale_color_manual(values = colors, labels = c(
+    "1" = "Pneumonia",
+    "2" = "Urogenital Infection",
+    "3" = "Bacteremia",
+    "4" = "Abdominal Infection",
+    "5" = "Skin and Soft Tissue Infection",
+    "6" = "Others"
+  )) +  
+  labs(
+    title = "Cumulative Distribution of K-type by Specimen",
+    x = "K-type (Factor)",
+    y = "Cumulative Percentage (%)",
+    color = "Specimen"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.title = element_text(size = 12, color = "black"),  
+    axis.line = element_line(color = "black", size = 0.8),  
+    axis.text.x = element_text(angle = 0, vjust = 0.5, hjust = 0.5, size = 10),  
+    axis.text.y = element_text(size = 10),  
+    axis.ticks.x = element_line(color = "black", size = 0.8),  
+    axis.ticks.y = element_line(color = "black", size = 0.8),  
+    legend.title = element_blank(),  
+    legend.position = "right",       
+    panel.grid = element_blank()     
+  )
+
+
+#Figure3B
+library(ggplot2)
+library(dplyr)
+
+kp_cumulative_VF <- kp %>%
+  mutate(K_type_factor = factor(K_type)) %>%  
+  group_by(VF, K_type_factor) %>%
+  summarise(count = n(), .groups = 'drop') %>%  
+  arrange(VF, K_type_factor) %>%                
+  group_by(VF) %>%
+  mutate(
+    cumulative_count = cumsum(count),        
+    total_count = sum(count),                   
+    cumulative_percentage = (cumulative_count / total_count) * 100  
+  )
+colors <- c("#3D5C6F","#F9AE78", "#E47159")
+ggplot(kp_cumulative_VF, aes(x = as.numeric(K_type_factor), y = cumulative_percentage, color = as.factor(VF), group = VF)) +
+  geom_step(size = 0.8) + 
+  scale_color_manual(values = colors, labels = c(
+    "0" = "0",  
+    "2" = "1-4", 
+    "1" = "5"  
+  )) +  
+  labs(
+    title = "Cumulative Distribution of K-type by VF",
+    x = "K-type (Factor)",
+    y = "Cumulative Percentage (%)",
+    color = "VF"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.title = element_text(size = 12, color = "black"), 
+    axis.line = element_line(color = "black", size = 0.8),  
+    axis.text.x = element_text(angle = 0, vjust = 0.5, hjust = 0.5, size = 10),  
+    axis.text.y = element_text(size = 10),  
+    axis.ticks.x = element_line(color = "black", size = 0.8),  
+    axis.ticks.y = element_line(color = "black", size = 0.8),  
+    legend.title = element_blank(),  
+    legend.position = "right",       
+    panel.grid = element_blank()     
+  )
+
+
+#Figure3C
+library(ggplot2)
+library(dplyr)
+kp_cumulative_specimen <- kp %>%
+  mutate(O_type_factor = factor(O_type)) %>%  
+  group_by(specimen, O_type_factor) %>%       
+  summarise(count = n(), .groups = 'drop') %>%  
+  arrange(specimen, O_type_factor) %>%         
+  group_by(specimen) %>%
+  mutate(
+    cumulative_count = cumsum(count),           
+    total_count = sum(count),                  
+    cumulative_percentage = (cumulative_count / total_count) * 100  
+  )
+colors <- c("#e9B383", "#fED593", "#A0C8CF", "#7C9D97", "#A7B7C3", "#D7D7D7")
+ggplot(kp_cumulative_specimen, aes(x = as.numeric(O_type_factor), y = cumulative_percentage, color = as.factor(specimen), group = specimen)) +
+  geom_step(size = 0.8) +  
+  scale_color_manual(values = colors, labels = c(
+    "1" = "Pneumonia",
+    "2" = "Urogenital Infection",
+    "3" = "Bacteremia",
+    "4" = "Abdominal Infection",
+    "5" = "Skin and Soft Tissue Infection",
+    "6" = "Others"
+  )) +  
+  labs(
+    title = "Cumulative Distribution of O-type by Specimen",
+    x = "O-type (Factor)",
+    y = "Cumulative Percentage (%)",
+    color = "Specimen"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.title = element_text(size = 12, color = "black"),  
+    axis.line = element_line(color = "black", size = 0.8),  
+    axis.text.x = element_text(angle = 0, vjust = 0.5, hjust = 0.5, size = 10),  
+    axis.text.y = element_text(size = 10),  
+    axis.ticks.x = element_line(color = "black", size = 0.8),  
+    axis.ticks.y = element_line(color = "black", size = 0.8),  
+    legend.title = element_blank(),  
+    legend.position = "right",       
+    panel.grid = element_blank()     
+  )
+
+
+#Figure3D
+library(ggplot2)
+library(dplyr)
+kp_cumulative_VF <- kp %>%
+  mutate(O_type_factor = factor(O_type)) %>%  
+  group_by(VF, O_type_factor) %>% 
+  summarise(count = n(), .groups = 'drop') %>% 
+  arrange(VF, O_type_factor) %>%               
+  group_by(VF) %>%                             
+  mutate(
+    cumulative_count = cumsum(count),           
+    total_count = sum(count),                   
+    cumulative_percentage = (cumulative_count / total_count) * 100  
+  )
+colors <- c("#3D5C6F", "#F9AE78", "#E47159")
+ggplot(kp_cumulative_VF, aes(x = as.numeric(O_type_factor), y = cumulative_percentage, color = as.factor(VF), group = VF)) +
+  geom_step(size = 0.8) +  
+  scale_color_manual(values = colors, labels = c(
+    "0" = "0",     
+    "2" = "1-4",   
+    "1" = "5"      
+  )) + 
+  labs(
+    title = "Cumulative Distribution of O-type by VF",
+    x = "O-type (Factor)",
+    y = "Cumulative Percentage (%)",
+    color = "VF"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.title = element_text(size = 12, color = "black"),  
+    axis.line = element_line(color = "black", size = 0.8),  
+    axis.text.x = element_text(angle = 0, vjust = 0.5, hjust = 0.5, size = 10),  
+    axis.text.y = element_text(size = 10),  
+    axis.ticks.x = element_line(color = "black", size = 0.8),  
+    axis.ticks.y = element_line(color = "black", size = 0.8),  
+    legend.title = element_blank(),  
+    legend.position = "right",       
+    panel.grid = element_blank()     
+  )
+
+
+#Figure3E
+library(ggplot2)
+library(dplyr)
+kp$specimen <- as.factor(kp$specimen)  
+kp$num_resistance_genes <- as.numeric(kp$num_resistance_genes)  
+specimen_summary <- kp %>% 
+  group_by(specimen) %>% 
+  summarize(mean_num_resistance_genes = mean(num_resistance_genes, na.rm = TRUE),
+            median_num_resistance_genes = median(num_resistance_genes, na.rm = TRUE),
+            sd_num_resistance_genes = sd(num_resistance_genes, na.rm = TRUE),
+            n = n())
+print(specimen_summary)
+
+ggplot(kp, aes(y = specimen, x = num_resistance_genes, fill = specimen)) +
+  geom_violin(trim = FALSE, color = "black") +  
+  geom_jitter(height = 0.2, size = 1, alpha = 0.5) +  
+  stat_summary(fun = median, geom = "point", shape = 23, size = 3, fill = "white") +  
+  labs(y = NULL, x = "Number of Resistance Genes") +  
+  scale_fill_manual(values = c("#e9B383", "#fED593", "#A0C8CF", "#7C9D97", "#A7B7C3", "#D7D7D7")) +  
+  theme_minimal() +  
+  theme(
+    legend.position = "none",  
+    axis.line = element_line(color = "black"),  
+    axis.ticks = element_line(color = "black"),  
+    axis.text.y = element_blank() 
+  ) +
+  facet_wrap(~ hvKp_label, scales = "free_y", nrow = 1)  
+
+
+# Figure 3F
+library(ggplot2)
+library(dplyr)
+
+kp <- kp %>%
+  mutate(
+    hvKp_label = factor(hvKp-P, levels = c(0, 1), labels = c("ckp", "hvkp")),  # hvKp-P: 0 -> ckp, 1 -> hvkp
+    ICU_label = factor(ICU, levels = c(0, 1), labels = c("ICU non-admission", "ICU admission")),  # ICU: 0 -> non-admission, 1 -> admission
+    group_label = interaction(hvKp_label, ICU_label)  
+  )
+color_map <- c("ICU non-admission" = "#a3c6e7", "ICU admission" = "#f1a7a0")
+
+kp$group_label <- factor(kp$group_label, 
+                         levels = c("ckp.ICU non-admission", "ckp.ICU admission", 
+                                    "hvkp.ICU non-admission", "hvkp.ICU admission"))
+
+ggplot(kp, aes(x = group_label, y = num_resistance_genes, fill = ICU_label)) +
+  geom_boxplot(outlier.shape = NA, color = "black") +  
+  geom_jitter(width = 0.2, size = 1, alpha = 0.6, aes(color = ICU_label)) +  
+  scale_fill_manual(values = color_map) +  
+  scale_color_manual(values = color_map) + 
+  labs(
+    x = "Group (hvKp and ICU)",  
+    y = "Number of Resistance Genes",  
+    title = "Distribution of Resistance Genes by hvKp and ICU Status"  
+  ) +
+  theme_minimal() +  
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),  
+    axis.title = element_text(size = 12, color = "black"),  
+    axis.line = element_line(color = "black", size = 0.8),  
+    axis.ticks = element_line(color = "black", size = 0.8), 
+    panel.grid = element_blank(),  
+    legend.position = "none"  
+  )
+
+
+#Figure3G
+# ESBL/CRKP-
+library(ggplot2)
+library(dplyr)
+
+kp$resistance_score <- as.factor(kp$resistance_score)
+kp$VF <- factor(kp$VF, levels = c("0", "1", "2")) 
+kp$specimen <- as.factor(kp$specimen)
+
+kp_filtered <- kp %>%
+  filter(resistance_score == 0) %>%
+  mutate(specimen = factor(case_when(
+    specimen == 1 ~ "Pneumonia",
+    specimen == 2 ~ "Urogenital Infection",
+    specimen == 3 ~ "Bacteremia",
+    specimen == 4 ~ "Abdominal Infection",
+    specimen == 5 ~ "Skin and Soft Tissue Infection",
+    specimen == 6 ~ "Others"
+  ), levels = c("Pneumonia", "Urogenital Infection", "Bacteremia", 
+                "Abdominal Infection", "Skin and Soft Tissue Infection", "Others")))
+
+vf_specimen_distribution <- kp_filtered %>%
+  group_by(VF, specimen) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  complete(VF, specimen, fill = list(count = 0))  
+colors <- c("Pneumonia" = "#E9B383",              
+            "Urogenital Infection" = "#FED593",   
+            "Bacteremia" = "#A0C8CF",             
+            "Abdominal Infection" = "#7C9D97",    
+            "Skin and Soft Tissue Infection" = "#A7B7C3",  
+            "Others" = "#D7D7D7")
+
+ggplot(vf_specimen_distribution, aes(x = VF, y = count, fill = specimen)) +
+  geom_bar(stat = "identity", position = "stack", width = 0.8) +  
+  scale_fill_manual(values = colors) +
+  labs(title = "Specimen Composition by VF Group (resistance_score = 0)", 
+       x = "VF Group",
+       y = "Count") +
+  theme_classic() +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black", size = 0.5),
+    axis.ticks = element_line(color = "black"),
+    axis.text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    legend.position = "right"  
+  )
+
+
+#ESBL
+library(ggplot2)
+library(dplyr)
+kp$ESBL <- as.factor(kp$ESBL)
+kp$VF <- factor(kp$VF, levels = c("0", "1", "2"))  
+kp$specimen <- as.factor(kp$specimen)
+kp_filtered <- kp %>%
+  filter(ESBL == 1) %>%
+  mutate(specimen = factor(case_when(
+    specimen == 1 ~ "Pneumonia",
+    specimen == 2 ~ "Urogenital Infection",
+    specimen == 3 ~ "Bacteremia",
+    specimen == 4 ~ "Abdominal Infection",
+    specimen == 5 ~ "Skin and Soft Tissue Infection",
+    specimen == 6 ~ "Others"
+  ), levels = c("Pneumonia", "Urogenital Infection", "Bacteremia", 
+                "Abdominal Infection", "Skin and Soft Tissue Infection", "Others")))
+
+vf_specimen_distribution <- kp_filtered %>%
+  group_by(VF, specimen) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  complete(VF, specimen, fill = list(count = 0)) 
+colors <- c("Pneumonia" = "#E9B383",              
+            "Urogenital Infection" = "#FED593",   
+            "Bacteremia" = "#A0C8CF",             
+            "Abdominal Infection" = "#7C9D97",    
+            "Skin and Soft Tissue Infection" = "#A7B7C3",  
+            "Others" = "#D7D7D7")
+
+ggplot(vf_specimen_distribution, aes(x = VF, y = count, fill = specimen)) +
+  geom_bar(stat = "identity", position = "stack", width = 0.8) + 
+  scale_fill_manual(values = colors) +
+  labs(title = "Specimen Composition by VF Group (ESBL = 1)", 
+       x = "VF Group",
+       y = "Count") +
+  theme_classic() +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black", size = 0.5),
+    axis.ticks = element_line(color = "black"),
+    axis.text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    legend.position = "right" 
+  )
+
+
+#CRKP
+library(ggplot2)
+library(dplyr)
+
+kp$CRKP <- as.factor(kp$CRKP)
+kp$VF <- factor(kp$VF, levels = c("0", "1", "2")) 
+kp$specimen <- as.factor(kp$specimen)
+
+kp_filtered <- kp %>%
+  filter(CRKP == 1) %>%
+  mutate(specimen = factor(case_when(
+    specimen == 1 ~ "Pneumonia",
+    specimen == 2 ~ "Urogenital Infection",
+    specimen == 3 ~ "Bacteremia",
+    specimen == 4 ~ "Abdominal Infection",
+    specimen == 5 ~ "Skin and Soft Tissue Infection",
+    specimen == 6 ~ "Others"
+  ), levels = c("Pneumonia", "Urogenital Infection", "Bacteremia", 
+                "Abdominal Infection", "Skin and Soft Tissue Infection", "Others")))
+
+vf_specimen_distribution <- kp_filtered %>%
+  group_by(VF, specimen) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  complete(VF, specimen, fill = list(count = 0))  
+colors <- c("Pneumonia" = "#E9B383",              
+            "Urogenital Infection" = "#FED593",   
+            "Bacteremia" = "#A0C8CF",             
+            "Abdominal Infection" = "#7C9D97",    
+            "Skin and Soft Tissue Infection" = "#A7B7C3",  
+            "Others" = "#D7D7D7")
+
+ggplot(vf_specimen_distribution, aes(x = VF, y = count, fill = specimen)) +
+  geom_bar(stat = "identity", position = "stack", width = 0.8) +  
+  scale_fill_manual(values = colors) +
+  labs(title = "Specimen Composition by VF Group (CRKP = 1)", 
+       x = "VF Group",
+       y = "Count") +
+  theme_classic() +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black", size = 0.5),
+    axis.ticks = element_line(color = "black"),
+    axis.text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    legend.position = "right"
+  )
+
+
+#KPC
+library(ggplot2)
+library(dplyr)
+kp$KPC <- as.factor(kp$KPC)
+kp$VF <- factor(kp$VF, levels = c("0", "1", "2"))  
+kp$specimen <- as.factor(kp$specimen)
+
+kp_filtered <- kp %>%
+  filter(KPC == 1) %>%
+  mutate(specimen = factor(case_when(
+    specimen == 1 ~ "Pneumonia",
+    specimen == 2 ~ "Urogenital Infection",
+    specimen == 3 ~ "Bacteremia",
+    specimen == 4 ~ "Abdominal Infection",
+    specimen == 5 ~ "Skin and Soft Tissue Infection",
+    specimen == 6 ~ "Others"
+  ), levels = c("Pneumonia", "Urogenital Infection", "Bacteremia", 
+                "Abdominal Infection", "Skin and Soft Tissue Infection", "Others")))
+
+vf_specimen_distribution <- kp_filtered %>%
+  group_by(VF, specimen) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  complete(VF, specimen, fill = list(count = 0))  
+
+colors <- c("Pneumonia" = "#E9B383",              
+            "Urogenital Infection" = "#FED593",   
+            "Bacteremia" = "#A0C8CF",             
+            "Abdominal Infection" = "#7C9D97",    
+            "Skin and Soft Tissue Infection" = "#A7B7C3",  
+            "Others" = "#D7D7D7")
+
+ggplot(vf_specimen_distribution, aes(x = VF, y = count, fill = specimen)) +
+  geom_bar(stat = "identity", position = "stack", width = 0.8) +  
+  scale_fill_manual(values = colors) +
+  labs(title = "Specimen Composition by VF Group (KPC = 1)",  
+       x = "VF Group",
+       y = "Count") +
+  theme_classic() +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black", size = 0.5),
+    axis.ticks = element_line(color = "black"),
+    axis.text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    legend.position = "right"
+  )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#Figure S1A
+library(ggplot2)
+kp$AGE <- as.numeric(kp$AGE)
+kp$SEX <- factor(kp$SEX, levels = c(1, 2), labels = c("Male", "Female"))
+
+ggplot(kp, aes(x = AGE, y = SEX, fill = SEX)) +
+  geom_boxplot(outlier.shape = NA, color = "black", alpha = 0.5) + 
+  geom_jitter(width = 0.2, size = 1, alpha = 0.5, aes(color = SEX)) +
+  scale_fill_manual(values = c("Male" = "#ADD8E6", "Female" = "#FFC0CB")) + 
+  scale_color_manual(values = c("Male" = "#4682B4", "Female" = "#8B4513")) + 
+  labs(x = NULL, y = NULL, fill = "Sex", color = "Sex") + 
+  scale_x_continuous(breaks = seq(0, 100, by = 25), limits = c(0, 100)) + 
+  ggtitle("Age Distribution by Sex") + 
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.line = element_line(color = "black"), 
+    axis.ticks = element_line(color = "black"), 
+    axis.text = element_text(color = "black"),  
+    legend.position = "none"
+print(summary(kp$AGE))
+
+
+#Figure S1B
+library(ggplot2)
+library(gghalves)
+kp$VF <- as.factor(kp$VF)
+colors <- c("#3D5C6F", "#E47159", "#F9AE78")
+ggplot(kp, aes(x = VF, y = Charlson, fill = VF)) +
+  geom_half_violin(side = "l", alpha = 0.5, color = NA) +          
+  geom_half_boxplot(side = "r", width = 0.3, outlier.shape = NA) + 
+  geom_jitter(width = 0.2, size = 1, alpha = 0.5) +                
+  labs(x = "VF Group", y = "Charlson Index") +                     
+  scale_fill_manual(values = colors) +                             
+  theme_minimal() +
+  theme(
+    legend.position = "none",                                      
+    axis.line.x = element_line(color = "black"),                   
+    axis.line.y = element_line(color = "black"),                  
+    axis.ticks = element_line(color = "black"),               
+    axis.text = element_text(color = "black")                     
+  )
+
+
+#Figure S1C
+# acquisition
+library(ggplot2)
+library(dplyr)
+kp <- kp %>%
+  mutate(specimen_label = case_when(
+    specimen == 1 ~ "Pneumonia",
+    specimen == 2 ~ "Urogenital Infection",
+    specimen == 3 ~ "Bacteremia",
+    specimen == 4 ~ "Abdominal Infection",
+    specimen == 5 ~ "Skin and Soft Tissue Infection",
+    specimen == 6 ~ "Others"
+  ))
+kp <- kp %>% 
+  mutate(acquisition_label = factor(case_when(
+    acquisition == 1 ~ "CAI",    
+    acquisition == 2 ~ "HCAI",   
+    acquisition == 3 ~ "HAI"     
+  ), levels = c("CAI", "HCAI", "HAI")))  
+kp_filtered <- kp %>% filter(hvKp_label == 1)
+
+acquisition_distribution <- kp_filtered %>%
+  group_by(acquisition_label, specimen_label) %>%
+  summarise(count = n(), .groups = 'drop') 
+
+acquisition_distribution <- acquisition_distribution %>%
+  group_by(acquisition_label) %>%
+  mutate(total_count = sum(count), 
+         percentage = (count / total_count) * 100) 
+colors <- c("Pneumonia" = "#e9B383", 
+            "Urogenital Infection" = "#fED593", 
+            "Bacteremia" = "#A0C8CF", 
+            "Abdominal Infection" = "#7C9D97", 
+            "Skin and Soft Tissue Infection" = "#A7B7C3", 
+            "Others" = "#D7D7D7")
+
+ggplot(acquisition_distribution, aes(x = percentage, y = acquisition_label, fill = specimen_label)) + 
+  geom_bar(stat = "identity", width = 0.6) +  
+  scale_fill_manual(values = colors) +  
+  labs(title = "Specimen Distribution by Acquisition Status",  
+       x = "Percentage of Specimens",                        
+       y = NULL) +                                      
+  theme_minimal() +
+  theme(axis.line = element_line(color = "black"),
+        axis.ticks = element_line(color = "black"),
+        axis.text = element_text(color = "black"),
+        axis.title = element_text(color = "black"),
+        legend.position = "none") 
+# ICU
+library(ggplot2)
+library(dplyr)
+kp <- kp %>%
+  mutate(specimen_label = case_when(
+    specimen == 1 ~ "Pneumonia",
+    specimen == 2 ~ "Urogenital Infection",
+    specimen == 3 ~ "Bacteremia",
+    specimen == 4 ~ "Abdominal Infection",
+    specimen == 5 ~ "Skin and Soft Tissue Infection",
+    specimen == 6 ~ "Others"
+  ))
+
+kp <- kp %>% 
+  mutate(ICU_label = factor(case_when(
+    ICU == 0 ~ "ICU non-admission",   
+    ICU == 1 ~ "ICU admission"       
+  ), levels = c("ICU non-admission", "ICU admission")))  
+
+kp_filtered <- kp %>% filter(hvKp_label == 1)
+icu_distribution <- kp_filtered %>%
+  group_by(ICU_label, specimen_label) %>%
+  summarise(count = n(), .groups = 'drop')  
+colors <- c("Pneumonia" = "#e9B383", 
+            "Urogenital Infection" = "#fED593", 
+            "Bacteremia" = "#A0C8CF", 
+            "Abdominal Infection" = "#7C9D97", 
+            "Skin and Soft Tissue Infection" = "#A7B7C3", 
+            "Others" = "#D7D7D7")
+ggplot(icu_distribution, aes(x = count, y = ICU_label, fill = specimen_label)) + 
+  geom_bar(stat = "identity", width = 0.6) +  
+  scale_fill_manual(values = colors) +  
+  labs(title = "Specimen Distribution by ICU Status",   
+       x = "Number of Specimens",                       
+       y = NULL) +                                  
+  theme_minimal() +
+  theme(axis.line = element_line(color = "black"),
+        axis.ticks = element_line(color = "black"),
+        axis.text = element_text(color = "black"),
+        axis.title = element_text(color = "black"),
+        legend.position = "none")  
+
+
+#Figure S1D
+library(ggplot2)
+library(dplyr)
+kp <- kp %>%
+    mutate(status_label = factor(status, levels = c(0, 1), labels = c("Survived or Lost to Follow-up","Deceased")))
+kp <- kp %>%
+    mutate(specimen = factor(specimen, levels = rev(c("1", "2", "3", "4", "5", "6"))))  
+status_distribution <- kp %>%
+    group_by(specimen, status_label) %>%
+    summarise(count = n(), .groups = 'drop')  
+ggplot(status_distribution, aes(x = count, y = specimen, fill = status_label)) +
+    geom_bar(stat = "identity", width = 0.6) +  
+    scale_fill_manual(values = c("Deceased" = "#3D5488", "Survived or Lost to Follow-up" = "#9AC9DB")) +  
+    labs(title = "Specimen Distribution by Status",   
+         x = "Number of Specimens",                  
+         y = "Specimen") +                            
+    theme_minimal() +
+    theme(axis.line = element_line(color = "black"),
+          axis.ticks = element_line(color = "black"),
+          axis.text = element_text(color = "black"),
+          axis.title = element_text(color = "black"),
+          legend.title = element_blank(),  
+          legend.position = "top")  
+
+#Figure S1E
+#14d
+library(survival)
+library(survminer)
+library(dplyr)
+library(ggplot2)
+
+kp_filtered <- kp %>% 
+  filter(fivevsothers %in% c(0, 1), !is.na(status), !is.na(time)) %>%  
+  mutate(
+    fivevsothers = as.factor(fivevsothers),  
+    status = ifelse(time > 14, 0, status),  
+    time = pmin(time, 14)                   
+  )
+
+surv_object <- Surv(time = kp_filtered$time, event = kp_filtered$status)
+fit <- survfit(surv_object ~ fivevsothers, data = kp_filtered)
+p_val <- survdiff(surv_object ~ fivevsothers, data = kp_filtered)
+p_value <- 1 - pchisq(p_val$chisq, length(p_val$n) - 1)
+p_text <- paste("p =", signif(p_value, 3))
+p <- ggsurvplot(
+  fit,
+  data = kp_filtered,
+  conf.int = TRUE,
+  risk.table = TRUE,
+  xlab = "Follow-up Time (days)",
+  ylab = "Survival Probability",
+  xlim = c(0, 14),                
+  ylim = c(0.5, 1),               
+  break.time.by = 7,             
+  legend.labs = c("cKp−p cohort", "hvKp−p cohort"),  
+  palette = c("#FCB462", "#795B34")  
+)
+p$plot <- p$plot +
+  scale_fill_manual(values = c("cKp−p cohort" = "#FFE8CE", "hvKp−p cohort" = "#DACEC2")) +  
+  annotate("text", x = 5, y = 0.6, label = p_text, size = 4, color = "black")    
+print(p)
+
+#28d
+kp_filtered <- kp %>% 
+  filter(fivevsothers %in% c(0, 1), !is.na(status), !is.na(time)) %>%  
+  mutate(
+    fivevsothers = as.factor(fivevsothers), 
+    status = ifelse(time > 28, 0, status),  
+    time = pmin(time, 28)                   
+  )
+
+surv_object <- Surv(time = kp_filtered$time, event = kp_filtered$status)
+fit <- survfit(surv_object ~ fivevsothers, data = kp_filtered)
+p_val <- survdiff(surv_object ~ fivevsothers, data = kp_filtered)
+p_value <- 1 - pchisq(p_val$chisq, length(p_val$n) - 1)
+p_text <- paste("p =", signif(p_value, 3))
+p <- ggsurvplot(
+  fit,
+  data = kp_filtered,
+  conf.int = TRUE,
+  risk.table = TRUE,
+  xlab = "Follow-up Time (days)",
+  ylab = "Survival Probability",
+  xlim = c(0, 28),                
+  ylim = c(0.5, 1),              
+  break.time.by = 7,             
+  legend.labs = c("cKp−p cohort", "hvKp−p cohort"),  
+  palette = c("#FCB462", "#795B34")  
+)
+p$plot <- p$plot +
+  scale_fill_manual(values = c("cKp−p cohort" = "#FFE8CE", "hvKp−p cohort" = "#DACEC2")) +  
+  annotate("text", x = 5, y = 0.6, label = p_text, size = 4, color = "black")    
+print(p)
+
+#90d
+kp_filtered <- kp %>% 
+  filter(fivevsothers %in% c(0, 1), !is.na(status), !is.na(time)) %>%  
+  mutate(
+    fivevsothers = as.factor(fivevsothers),  # Change fivevsnon to fivevsothers
+    status = ifelse(time > 90, 0, status),  
+    time = pmin(time, 90)                   
+  )
+
+surv_object <- Surv(time = kp_filtered$time, event = kp_filtered$status)
+fit <- survfit(surv_object ~ fivevsothers, data = kp_filtered)
+p_val <- survdiff(surv_object ~ fivevsothers, data = kp_filtered)
+p_value <- 1 - pchisq(p_val$chisq, length(p_val$n) - 1)
+p_text <- paste("p =", signif(p_value, 3))
+p <- ggsurvplot(
+  fit,
+  data = kp_filtered,
+  conf.int = TRUE,
+  risk.table = TRUE,
+  xlab = "Follow-up Time (days)",
+  ylab = "Survival Probability",
+  xlim = c(0, 90),                
+  ylim = c(0.5, 1),               
+  break.time.by = 30,             
+  legend.labs = c("cKp−p cohort ", "hvKp−p cohort"),  
+  palette = c("#FCB462", "#795B34")  
+)
+p$plot <- p$plot +
+  scale_fill_manual(values = c("cKp−p cohort" = "#FFE8CE", "hvKp−p cohort" = "#DACEC2")) +  
+  annotate("text", x = 30, y = 0.6, label = p_text, size = 4, color = "black")    
+print(p)
+
+
+#Figure S1F
+#14d
+library(survival)
+library(survminer)
+library(dplyr)
+library(ggplot2)
+kp_filtered <- kp %>% 
+  filter(fivevsmid %in% c(0, 1), !is.na(status), !is.na(time)) %>%  
+  mutate(
+    fivevsmid = as.factor(fivevsmid),  
+    status = ifelse(time > 14, 0, status),  
+    time = pmin(time, 14)                   
+  )
+
+surv_object <- Surv(time = kp_filtered$time, event = kp_filtered$status)
+fit <- survfit(surv_object ~ fivevsmid, data = kp_filtered)
+p_val <- survdiff(surv_object ~ fivevsmid, data = kp_filtered)
+p_value <- 1 - pchisq(p_val$chisq, length(p_val$n) - 1)
+p_text <- paste("p =", signif(p_value, 3))
+p <- ggsurvplot(
+  fit,
+  data = kp_filtered,
+  conf.int = TRUE,
+  risk.table = TRUE,
+  xlab = "Follow-up Time (days)",
+  ylab = "Survival Probability",
+  xlim = c(0, 14),                
+  ylim = c(0.5, 1),               
+  break.time.by = 7,             
+  legend.labs = c("cKp−p sub-cohort 1", "hvKp−p cohort"),  
+  palette = c("#FCB462", "#795B34")  
+)
+p$plot <- p$plot +
+  scale_fill_manual(values = c("cKp−p sub-cohort 1" = "#FFE8CE", "hvKp−p cohort" = "#DACEC2")) +  
+  annotate("text", x = 5, y = 0.6, label = p_text, size = 4, color = "black")    
+print(p)
+
+#28d
+kp_filtered <- kp %>% 
+  filter(fivevsmid %in% c(0, 1), !is.na(status), !is.na(time)) %>%  
+  mutate(
+    fivevsmid = as.factor(fivevsmid), 
+    status = ifelse(time > 28, 0, status),  
+    time = pmin(time, 28)                   
+  )
+surv_object <- Surv(time = kp_filtered$time, event = kp_filtered$status)
+fit <- survfit(surv_object ~ fivevsmid, data = kp_filtered)
+p_val <- survdiff(surv_object ~ fivevsmid, data = kp_filtered)
+p_value <- 1 - pchisq(p_val$chisq, length(p_val$n) - 1)
+p_text <- paste("p =", signif(p_value, 3))
+p <- ggsurvplot(
+  fit,
+  data = kp_filtered,
+  conf.int = TRUE,
+  risk.table = TRUE,
+  xlab = "Follow-up Time (days)",
+  ylab = "Survival Probability",
+  xlim = c(0, 28),                
+  ylim = c(0.5, 1),              
+  break.time.by = 7,             
+  legend.labs = c("cKp−p sub-cohort 1", "hvKp−p cohort"),  
+  palette = c("#FCB462", "#795B34")  
+)
+p$plot <- p$plot +
+  scale_fill_manual(values = c("cKp−p sub-cohort 1" = "#FFE8CE", "hvKp−p cohort" = "#DACEC2")) +  
+  annotate("text", x = 5, y = 0.6, label = p_text, size = 4, color = "black")    
+print(p)
+
+#90d
+kp_filtered <- kp %>% 
+  filter(fivevsmid %in% c(0, 1), !is.na(status), !is.na(time)) %>%  
+  mutate(
+    fivevsmid = as.factor(fivevsmid),  
+    status = ifelse(time > 90, 0, status),  
+    time = pmin(time, 90)                   
+  )
+
+surv_object <- Surv(time = kp_filtered$time, event = kp_filtered$status)
+
+fit <- survfit(surv_object ~ fivevsmid, data = kp_filtered)
+p_val <- survdiff(surv_object ~ fivevsmid, data = kp_filtered)
+p_value <- 1 - pchisq(p_val$chisq, length(p_val$n) - 1)
+p_text <- paste("p =", signif(p_value, 3))
+p <- ggsurvplot(
+  fit,
+  data = kp_filtered,
+  conf.int = TRUE,
+  risk.table = TRUE,
+  xlab = "Follow-up Time (days)",
+  ylab = "Survival Probability",
+  xlim = c(0, 90),                
+  ylim = c(0.5, 1),               
+  break.time.by = 30,             
+  legend.labs = c("cKp−p sub-cohort 1", "hvKp−p cohort"),  
+  palette = c("#FCB462", "#795B34")  
+)
+p$plot <- p$plot +
+  scale_fill_manual(values = c("cKp−p sub-cohort 1" = "#FFE8CE", "hvKp−p cohort" = "#DACEC2")) +  
+  annotate("text", x = 30, y = 0.6, label = p_text, size = 4, color = "black")    
+print(p)
+
+
+#FigureS2A
+library(dplyr)
+library(ggplot2)
+kp_filtered <- kp %>% 
+  filter(hvKp == 1)  
+st_count <- kp_filtered %>%
+  group_by(ST) %>%
+  summarise(count = n(), .groups = 'drop')
+st_count <- st_count %>%
+  mutate(ST = factor(ST, levels = ST[order(count, decreasing = TRUE)]))  
+
+ggplot(st_count, aes(x = count, y = ST)) +
+  geom_bar(stat = "identity", width = 0.6, fill = "#FFA500") +  
+  labs(title = "Distribution of Different ST by hvKp=1",  
+       x = "Number of Specimens",                        
+       y = "ST Types") +                              
+  theme_minimal() + 
+  theme(axis.line = element_line(color = "black"),
+        axis.ticks = element_line(color = "black"),
+        axis.text = element_text(color = "black"),
+        axis.title = element_text(color = "black"))  
+
+#Figure S2B
+library(ggplot2)
+library(dplyr)
+library(tidyr)  
+kp$VF <- as.factor(kp$VF)  
+kp_long <- kp %>%
+  pivot_longer(cols = c(virulence_score, resistance_score), 
+               names_to = "Score_Type", 
+               values_to = "Score_Value")
+ggplot(kp_long, aes(x = VF, y = Score_Value, fill = VF)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.7) +  
+  geom_jitter(aes(color = VF), position = position_jitterdodge(), size = 1, alpha = 0.6) +  
+  labs(x = "VF Group", y = "Score Value") +
+  scale_fill_manual(values = c("#3D5C6F", "#E47159", "#F9AE78")) +  
+  scale_color_manual(values = c("#3D5C6F", "#E47159", "#F9AE78")) +  
+  facet_wrap(~ Score_Type, scales = "free_y", labeller = labeller(Score_Type = c("virulence_score" = "Virulence Score", "resistance_score" = "Resistance Score"))) +  
+  theme_minimal() +  
+  theme(
+    legend.position = "none",  
+    axis.line = element_line(color = "black"),  
+    strip.text = element_text(size = 12, face = "bold") 
+  )
+
+
+#Figure S2C
+library(dplyr)
+library(ggplot2)
+iucA_summary <- kp %>%
+  group_by(specimen) %>%
+  summarise(
+total_count = n(),  
+    iucA_positive_count = sum(iucA == 1, na.rm = TRUE)  
+  ) %>%
+  mutate(percentage = (iucA_positive_count / total_count) * 100)  
+
+colors <- c("#e9B383", "#fED593", "#A0C8CF", "#7C9D97", "#A7B7C3", "#D7D7D7")
+
+ggplot(iucA_summary, aes(x = percentage, y = factor(specimen), fill = factor(specimen))) +
+  geom_bar(stat = "identity", width = 0.6) +
+  scale_fill_manual(values = colors, guide = "none") +  
+  labs(x = " % iucA", y = "Specimen") +  
+  theme_minimal() +
+  theme(
+    axis.line = element_line(color = "black"),  
+    axis.ticks = element_line(color = "black"),
+    axis.text = element_text(color = "black"),
+    panel.grid.major = element_blank(), 
+    panel.grid.minor = element_blank() 
+  )
+
+library(dplyr)
+library(ggplot2)
+colors <- c("#e9B383", "#fED593", "#A0C8CF", "#7C9D97", "#A7B7C3", "#D7D7D7")
+generate_plot <- function(gene_var, gene_name) {
+    gene_summary <- kp %>%
+    group_by(specimen) %>%
+    summarise(
+      total_count = n(), 
+      gene_positive_count = sum(get(gene_var) == 1, na.rm = TRUE)  
+    ) %>%
+    mutate(percentage = (gene_positive_count / total_count) * 100)  
+  
+  p <- ggplot(gene_summary, aes(x = percentage, y = factor(specimen), fill = factor(specimen))) +
+    geom_bar(stat = "identity", width = 0.6) +
+    scale_fill_manual(values = colors, guide = "none") +  
+    labs(x = paste("%", gene_name), y = "Specimen", title = paste(gene_name, "Distribution by Specimen")) +  
+    theme_minimal() +
+    theme(
+      axis.line = element_line(color = "black"),  
+      axis.ticks = element_line(color = "black"),
+      axis.text = element_text(color = "black"),
+      panel.grid.major = element_blank(), 
+      panel.grid.minor = element_blank()  
+    )
+    return(p)
+}
+
+plot_iroB <- generate_plot("iroB", "iroB")
+plot_peg344 <- generate_plot("peg_344", "peg-344")
+plot_rmpA <- generate_plot("rmpA", "rmpA")
+plot_rmpA2 <- generate_plot("rmpA2", "rmpA2")
+print(plot_iroB)
+print(plot_peg344)
+print(plot_rmpA)
+print(plot_rmpA2)
+
+
+
+#Figure S2D
+library(dplyr)
+library(ggplot2)
+library(ggridges)
+kp$specimen <- as.factor(kp$specimen)
+kp$num_resistance_classes <- as.factor(kp$num_resistance_classes)
+specimen_counts <- kp %>%
+  group_by(specimen) %>%
+  summarise(total = n())
+ggplot(kp, aes(x = as.numeric(as.character(num_resistance_classes)), y = specimen, fill = specimen)) +
+  annotate("rect", xmin = 3, xmax = Inf, ymin = -Inf, ymax = Inf, alpha = 0.2, fill = "grey") +
+  geom_density_ridges(scale = 1, alpha = 0.7) +
+  scale_fill_manual(values = c("#e9B383", "#fED593", "#A0C8CF", "#7C9D97", "#A7B7C3", "#D7D7D7"), guide = "none") +  # 去除图例
+  labs(title = "Distribution of Resistance Classes Across Different Specimens",
+       x = "Number of Resistance Classes",
+       y = "Specimen") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 10, angle = 0, hjust = 1),  
+    axis.text.y = element_blank(),  
+    panel.grid.major = element_blank(),  
+    panel.grid.minor = element_blank(),  
+    panel.background = element_rect(fill = "white", color = NA),  
+    axis.line.x = element_line(color = "black"),  
+    axis.line.y = element_blank()  
+  ) +
+  geom_text(data = specimen_counts, aes(x = 11, y = as.numeric(specimen) - 0.3, label = paste("n =", total)), hjust = 0, size = 4, color = "black") +  
+  annotate("text", x = 7, y = max(as.numeric(kp$specimen)) + 0.5, label = "MDR", color = "black", size = 4, hjust = 0)
+
+
+#ESBL
+kp$specimen <- factor(kp$specimen, levels = as.character(1:6)) 
+kp$CRKP <- as.factor(kp$CRKP)
+
+kp_summary <- kp %>%
+  filter(ESBL == 1) %>%
+  group_by(specimen) %>%
+  summarise(count = n())
+
+colors <- c("#e9B383", "#fED593", "#A0C8CF", "#7C9D97", "#A7B7C3", "#D7D7D7")
+
+ggplot(kp_summary, aes(x = count, y = specimen, fill = specimen)) +
+  geom_bar(stat = "identity",width=0.6) +
+  scale_fill_manual(values = colors, guide = "none") +  
+  labs(x = "ESBL", y = NULL) + 
+  theme_minimal() +
+
+  theme(
+    axis.text.x = element_text(size = 10),  
+    axis.text.y = element_blank(),  
+    axis.line.x = element_line(color = "black"),  
+    axis.line.y = element_line(color = "black"),  
+    panel.grid.major = element_blank(),  
+    panel.grid.minor = element_blank()  
+  )
+
+
+#CRKP
+kp$specimen <- factor(kp$specimen, levels = as.character(1:6))  
+kp$CRKP <- as.factor(kp$CRKP)
+kp_summary <- kp %>%
+  filter(CRKP == 1) %>%
+  group_by(specimen) %>%
+  summarise(count = n())
+colors <- c("#e9B383", "#fED593", "#A0C8CF", "#7C9D97", "#A7B7C3", "#D7D7D7")
+
+ggplot(kp_summary, aes(x = count, y = specimen, fill = specimen)) +
+  geom_bar(stat = "identity",width=0.6) +
+  scale_fill_manual(values = colors, guide = "none") +  
+  labs(x = "CRKP", y = NULL) +  
+  theme_minimal() +
+
+  theme(
+    axis.text.x = element_text(size = 10),
+    axis.text.y = element_blank(),  
+    axis.line.x = element_line(color = "black"), 
+    axis.line.y = element_line(color = "black"),  
+    panel.grid.major = element_blank(),  
+    panel.grid.minor = element_blank()  
+  )
+
+#KPC
+library(dplyr)
+library(ggplot2)
+
+kp$specimen <- factor(kp$specimen, levels = as.character(1:6))  
+kp$KPC <- as.factor(kp$KPC)
+
+kp_summary <- kp %>%
+  filter(KPC == 1) %>%
+  group_by(specimen) %>%
+  summarise(count = n())
+
+colors <- c("#e9B383", "#fED593", "#A0C8CF", "#7C9D97", "#A7B7C3", "#D7D7D7")
+
+ggplot(kp_summary, aes(x = count, y = specimen, fill = specimen)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  scale_fill_manual(values = colors, guide = "none") +  
+  labs(x = "KPC", y = NULL) +  
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 10), 
+    axis.text.y = element_blank(),  
+    axis.line.x = element_line(color = "black"), 
+    axis.line.y = element_line(color = "black"),
+    panel.grid.major = element_blank(), 
+    panel.grid.minor = element_blank()  
+  )
+
+
+#Figure S2E
+library(dplyr)
+library(ggplot2)
+library(ggridges)
+kp$VF <- as.factor(kp$VF)
+kp$num_resistance_classes <- as.factor(kp$num_resistance_classes)
+
+VF_counts <- kp %>%
+  group_by(VF) %>%
+  summarise(total = n())
+
+ggplot(kp, aes(x = as.numeric(as.character(num_resistance_classes)), y = VF, fill = VF)) +
+  annotate("rect", xmin = 3, xmax = Inf, ymin = -Inf, ymax = Inf, alpha = 0.2, fill = "grey") +
+  geom_density_ridges(scale = 1, alpha = 0.7) +
+  scale_fill_manual(values = c("#3D5C6F", "#E47159", "#F9AE78"), guide = "none") + 
+  labs(  
+       x = "Number of Resistance Classes",
+       y = "VF") +
+  scale_y_discrete(labels = c("0" = "0VF", "1" = "1-4VF", "2" = "5VF")) +  
+  theme(
+    axis.text.x = element_text(size = 10, angle = 0, hjust = 1),  
+    axis.text.y = element_text(size = 10),  
+    panel.background = element_rect(fill = "white"), 
+    panel.grid.major = element_blank(),  
+    panel.grid.minor = element_blank(),  
+    axis.line.x = element_line(color = "black"),  
+    axis.line.y = element_line(color = "black")  
+  ) +
+  geom_text(data = VF_counts, aes(x = 11, y = as.numeric(VF) - 0.3, label = paste("n =", total)), hjust = 0, size = 4, color = "black") +  
+  annotate("text", x = 8, y = max(as.numeric(kp$VF)) + 1, label = "MDR", color = "black", size = 4, hjust = 0)
+
+
+# ESBL
+library(dplyr)
+library(ggplot2)
+library(tidyr) 
+
+kp$VF <- factor(kp$VF)  
+kp$CRKP <- as.factor(kp$ESBL)
+all_vf_levels <- data.frame(VF = levels(kp$VF))
+kp_summary <- kp %>%
+  filter(ESBL == 1) %>%
+  group_by(VF) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  right_join(all_vf_levels, by = "VF") %>% 
+  mutate(count = replace_na(count, 0))
+colors <- c("#3D5C6F", "#E47159", "#F9AE78")
+
+ggplot(kp_summary, aes(x = count, y = VF, fill = VF)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  scale_fill_manual(values = colors, guide = "none") +  
+  labs(x ="ESBL", y = NULL) +  
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 10),  
+    axis.text.y = element_blank(),  
+    axis.line.x = element_line(color = "black"), 
+    axis.line.y = element_line(color = "black"), 
+    panel.grid.major = element_blank(),  
+    panel.grid.minor = element_blank()  
+  )
+
+
+# CRKP
+library(dplyr)
+library(ggplot2)
+library(tidyr)  
+kp$VF <- factor(kp$VF) 
+kp$CRKP <- as.factor(kp$CRKP)
+
+all_vf_levels <- data.frame(VF = levels(kp$VF))
+kp_summary <- kp %>%
+  filter(CRKP == 1) %>%
+  group_by(VF) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  right_join(all_vf_levels, by = "VF") %>% 
+  mutate(count = replace_na(count, 0)) 
+colors <- c("#3D5C6F", "#E47159", "#F9AE78")
+
+ggplot(kp_summary, aes(x = count, y = VF, fill = VF)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  scale_fill_manual(values = colors, guide = "none") +  
+  labs(x =" CRKP ", y = NULL) +  
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 10),  
+    axis.text.y = element_blank(),  
+    axis.line.x = element_line(color = "black"), 
+    axis.line.y = element_line(color = "black"),  
+    panel.grid.major = element_blank(),  
+    panel.grid.minor = element_blank()  
+  )
+
+
+
+# KPC
+library(dplyr)
+library(ggplot2)
+library(tidyr) 
+kp$VF <- factor(kp$VF)  
+kp$CRKP <- as.factor(kp$KPC)
+all_vf_levels <- data.frame(VF = levels(kp$VF))
+kp_summary <- kp %>%
+  filter(KPC == 1) %>%
+  group_by(VF) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  right_join(all_vf_levels, by = "VF") %>%  
+  mutate(count = replace_na(count, 0))  
+colors <- c("#3D5C6F", "#E47159", "#F9AE78")
+ggplot(kp_summary, aes(x = count, y = VF, fill = VF)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  scale_fill_manual(values = colors, guide = "none") +
+  labs(x =" KPC ", y = NULL) + 
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 10),  
+    axis.text.y = element_blank(),  
+    axis.line.x = element_line(color = "black"),  
+    axis.line.y = element_line(color = "black"),  
+    panel.grid.major = element_blank(), 
+    panel.grid.minor = element_blank()  
+  )
+
