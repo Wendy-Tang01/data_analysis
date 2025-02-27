@@ -236,11 +236,6 @@ plot <- forest(
 print(plot)
 
 
-#Figure 2 
-Waiting
-
-
-
 #Figure 3A
 library(ggplot2)
 library(dplyr)
